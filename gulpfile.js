@@ -5,9 +5,13 @@ var del = require('del');
 var glob = require('glob');
 var gulp = require('gulp');
 var path = require('path');
+var ngrok = require('ngrok');
+var psi = require('psi');
+var sequence = require('run-sequence');
 var _ = require('lodash');
 var $ = require('gulp-load-plugins')({lazy: true});
 
+var site = '';
 var colors = $.util.colors;
 var envenv = $.util.env;
 var port = process.env.PORT || config.defaultPort;
@@ -365,6 +369,77 @@ gulp.task('bump', function () {
     .pipe($.print())
     .pipe($.bump(options))
     .pipe(gulp.dest(config.root));
+});
+
+/**
+ * Connect to ngrok
+ */
+gulp.task('ngrok-url', function(cb) {
+  return ngrok.connect(3000, function (err, url) {
+    site = url;
+    console.log('serving your tunnel from: ' + site);
+    cb();
+  });
+});
+
+/**
+ * Run pagespeed for the desktop strategy
+ */
+gulp.task('psi-desktop', function (cb) {
+  psi({
+    nokey: 'true',
+    url: site,
+    strategy: 'desktop'
+  }, cb);
+});
+
+/**
+ * Run pagespeed for the mobile strategy
+ */
+gulp.task('psi-mobile', function (cb) {
+  psi({
+    nokey: 'true',
+    url: site,
+    strategy: 'mobile'
+  }, cb);
+});
+
+gulp.task('psi-seq', function (cb) {
+  return sequence(
+    'browser-sync-psi', // name of your server task here
+    'ngrok-url',
+    'psi-desktop',
+    'psi-mobile',
+    cb
+  );
+});
+
+// this is where your server task goes. I'm using browser sync
+gulp.task('browser-sync-psi', ['build'], function() {
+
+  var options = {
+    proxy: 'localhost:' + port,
+    port: 3020,
+    ghostMode: { // these are the defaults t,f,t,t
+      clicks: true,
+      location: false,
+      forms: true,
+      scroll: true
+    },
+    injectChanges: true,
+    logFileChanges: true,
+    logLevel: 'debug',
+    logPrefix: 'gulp-patterns',
+    notify: true,
+    reloadDelay: 0 //1000
+  };
+
+  browserSync(options);
+});
+
+gulp.task('psi', ['psi-seq'], function() {
+  console.log('Woohoo! Check out your page speed scores!');
+  process.exit();
 });
 
 ////////////////
